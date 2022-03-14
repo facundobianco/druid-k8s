@@ -1,0 +1,145 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: null
+  labels:
+    io.kompose.service: historical-var
+  name: historical-var
+  namespace: druid
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+status: {}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: historical
+  name: historical
+  namespace: druid
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: historical
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.1 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: historical
+    spec:
+      initContainers:
+        - name: create-var-dirs
+          image: apache/druid:0.22.1
+          command: ["/bin/sh", "-c", "mkdir -p /opt/druid/var/tmp /opt/druid/var/druid && chown -R druid:druid /opt/druid/var/tmp /opt/druid/var/druid" ]
+          securityContext:
+            runAsUser: 0
+            privileged: true
+          volumeMounts:
+            - mountPath: /opt/druid/var
+              name: historical-var
+      containers:
+        - args:
+            - historical
+          env:
+            - name: DRUID_LOG4J
+              value: <?xml version="1.0" encoding="UTF-8" ?><Configuration status="WARN"><Appenders><Console name="Console" target="SYSTEM_OUT"><PatternLayout pattern="%d{ISO8601} %p [%t] %c - %m%n"/></Console></Appenders><Loggers><Root level="info"><AppenderRef ref="Console"/></Root><Logger name="org.apache.druid.jetty.RequestLog" additivity="false" level="DEBUG"><AppenderRef ref="Console"/></Logger></Loggers></Configuration>
+            - name: DRUID_MAXDIRECTMEMORYSIZE
+              value: 6172m
+            - name: DRUID_MAXNEWSIZE
+              value: 250m
+            - name: DRUID_NEWSIZE
+              value: 250m
+            - name: DRUID_XMS
+              value: 1g
+            - name: DRUID_XMX
+              value: 1g
+            - name: druid_coordinator_balancer_strategy
+              value: cachingCost
+            - name: druid_emitter_logging_logLevel
+              value: debug
+            - name: druid_extensions_loadList
+              value: '["druid-histogram", "druid-datasketches", "druid-lookups-cached-global", "postgresql-metadata-storage"]'
+            - name: druid_indexer_fork_property_druid_processing_buffer_sizeBytes
+              value: 256MiB
+            - name: druid_indexer_logs_directory
+              value: /opt/shared/indexing-logs
+            - name: druid_indexer_logs_type
+              value: file
+            - name: druid_indexer_runner_javaOptsArray
+              value: '["-server", "-Xmx1g", "-Xms1g", "-XX:MaxDirectMemorySize=3g", "-Duser.timezone=UTC", "-Dfile.encoding=UTF-8", "-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager"]'
+            - name: druid_metadata_storage_connector_connectURI
+              value: jdbc:postgresql://postgres:5432/druid
+            - name: druid_metadata_storage_connector_password
+              value: ${psql_druid_password}
+            - name: druid_metadata_storage_connector_user
+              value: ${psql_druid_user}
+            - name: druid_metadata_storage_host
+            - name: druid_metadata_storage_type
+              value: postgresql
+            - name: druid_processing_numMergeBuffers
+              value: "2"
+            - name: druid_processing_numThreads
+              value: "2"
+            - name: druid_storage_storageDirectory
+              value: /opt/shared/segments
+            - name: druid_storage_type
+              value: local
+            - name: druid_zk_service_host
+              value: zookeeper
+          image: apache/druid:0.22.1
+          name: historical
+          ports:
+            - containerPort: 8083
+          resources: {}
+          volumeMounts:
+            - mountPath: /opt/shared
+              name: druid-shared
+            - mountPath: /opt/druid/var
+              name: historical-var
+      restartPolicy: Always
+      volumes:
+        - name: druid-shared
+          persistentVolumeClaim:
+            claimName: druid-shared
+        - name: historical-var
+          persistentVolumeClaim:
+            claimName: historical-var
+status: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: historical
+  name: historical
+  namespace: druid
+spec:
+  ports:
+    - name: "8083"
+      port: 8083
+      targetPort: 8083
+  selector:
+    io.kompose.service: historical
+status:
+  loadBalancer: {}

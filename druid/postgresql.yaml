@@ -1,0 +1,98 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: null
+  labels:
+    io.kompose.service: metadata-data
+  name: metadata-data
+  namespace: druid
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+status: {}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: postgres
+  name: postgres
+  namespace: druid
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.1 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: postgres
+    spec:
+      initContainers:
+        - name: create-empty-psql-dir
+          image: postgres:latest
+          command: ["/bin/sh", "-c", "mkdir -p /var/lib/postgresql/data/db" ]
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: metadata-data
+      containers:
+        - env:
+            - name: POSTGRES_DB
+              value: druid
+            - name: POSTGRES_PASSWORD
+              value: ${psql_druid_password}
+            - name: POSTGRES_USER
+              value: ${psql_druid_user}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/db
+          image: postgres:latest
+          name: postgres
+          ports:
+            - containerPort: 5432
+          resources: {}
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: metadata-data
+      restartPolicy: Always
+      volumes:
+        - name: metadata-data
+          persistentVolumeClaim:
+            claimName: metadata-data
+status: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: postgres
+  name: postgres
+  namespace: druid
+spec:
+  ports:
+    - name: "5432"
+      port: 5432
+      targetPort: 5432
+  selector:
+    io.kompose.service: postgres
+status:
+  loadBalancer: {}
